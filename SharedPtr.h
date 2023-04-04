@@ -38,6 +38,9 @@ private:
 		_pcount->add_shared();
 	}
 
+	template<class Y> friend class SharedPtr;
+    template<class Y> friend class WeakPtr;
+
 public:
 	/***
 	* @brief 默认构造函数
@@ -62,22 +65,22 @@ public:
 	/***
 	*	@brief 复制构造函数
 	*	@param SharedPtr的精髓，通过拷贝构造共享一个对象，并共享其所属block，将block中的sharecount+1；
-	*
-	* 
-	* 
 	***/
 	SharedPtr(const SharedPointer<T>& sptr)
 		: _data(sptr._data)
 		, _pcount(sptr._pcount) {
-		if()
 		add_SharedCount();
 	}
 
 	/*
-	* @brief 独占指针构造函数
-	* @param uptr => 独占指针
+	* @brief 移动构造函数
+	* @param 
 	*/
-	//SharedPointer(UniquePointer&& uptr);
+	SharedPointer(Shared_ptr&& uptr)
+		: _data(uptr._data)
+		, _pcount(uptr._pcount){
+		uptr.reset();
+	}
 
 	/*
 	* @brief 弱指针构造函数
@@ -100,47 +103,75 @@ public:
 
 
 public:
-	/*
-	* @brief 赋值运算符重载函数
-	* @param sptr => 共享指针
-	*/
+	/***
+	*	@brief 赋值运算符重载函数
+	*	@param sptr => 共享指针
+	* 
+	*	这里是线程不安全的主要因素，因为对原来对象的计数减一，与对新对象的计数加一，这两个操作合在一起不是原子操作
+	***/
 	SharedPointer& operator=(const SharedPointer& sptr) {
-		std::swap(*this, sp);
-		// 修改指向需要竞争自身锁
-		std::unique_lock<std::mutex> self_guard(self_mutex);
-		if (_pobject != sptr._pobject) {
+		// 修改指向需要竞争自身锁，这里不加锁是导致线程不安全的原因
+		//std::unique_lock<std::mutex> self_guard(self_mutex);
+		if (_data != sptr._data) {
 			// 减少计数引用
-			release_ref();
+			dec_SharedCount();
 			// 指向新资源
-			_pobject = sptr._pobject;
+			_data = sptr._data;
 			_pcount = sptr._pcount;
 			// 增加计数引用
-			add_ref();
+			add_SharedCount();
 		}
 		return *this;
 	}
 
+
+	shared_ptr& operator=(shared_ptr&& sp) {
+		if (_data != sptr._data) {
+			dec_SharedCount();
+			_data = sptr._data;
+			_pcount = sptr._pcount;
+			add_SharedCount();
+		}
+		sp.reset();
+		return *this;
+	}
+
+
+	T* get() const noexcept {
+		return data_;
+	}
 	/*
 	* @brief *运算符重载函数
 	*/
-	ObjectTest& operator*() const {
-		return *_pobject;
+	T& operator*() const {
+		return *_data;
 	}
 
 	/*
 	* @brief ->运算符重载函数
 	*/
-	ObjectTest* operator->() const {
-		return _pobject;
+	T* operator->() const {
+		return _data;
 	}
 
 public:
+
+	void reset() {
+		dec_SharedCount();
+		_data = nullptr;
+		_pcount = nullptr;
+	}
+
+	void reset(T* data) {
+		dec_shared_count();
+		data_ = data;
+		cblock_ = new cblock();
+	}
+
 	/*
 	* @brief 获取共享引用数
 	*/
 	int use_count() {
-		// 查看引用计数也需要竞争自身锁
-		std::unique_lock<std::mutex> self_guard(self_mutex);
 		return _pcount->get_shared_count();
 	}
 
@@ -148,21 +179,7 @@ public:
 	* @brief 判断是否为空
 	*/
 	bool is_empty() const {
-		return (_pobject == nullptr);
+		return (_data == nullptr);
 	}
-
-	/*
-	* @brief 获取共享引用数
-	*/
-	//void reset() {
-	//	printf("reset starts.\n");
-	//	// 修改指向需要竞争自身锁
-	//	std::unique_lock<std::mutex> self_guard(self_mutex);
-	//	release_ref();
-	//	_pobject = nullptr;
-	//	_pcount = new AtomicBlock();
-	//	printf("reset ends.\n");
-	//}
-
 };
 
